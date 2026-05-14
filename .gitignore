@@ -1,0 +1,44 @@
+# Flutter-related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+
+# SDK-related (Specific to your setup)
+flutter/
+flutter_windows_3.41.9-stable.zip
+
+# Android-related
+**/android/**/generated/
+**/android/gradle/
+**/android/local.properties
+**/android/app/src/main/res/values/strings.xml (generated field)
+**/*.iml
+**/*.ipr
+**/*.iws
+.idea/
+.gradle/
+
+# iOS-related
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.[mh]
+
+# macOS-related
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+
+# Windows-related
+**/windows/flutter/ephemeral/
+
+# Others
+.DS_Store
+.history
+.env
