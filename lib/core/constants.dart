@@ -1,6 +1,11 @@
 // API Configuration
 const String apiBaseUrl = 'http://localhost:8080/api';
 
+// Supabase Configuration
+const String supabaseUrl = 'https://ycblykplwavtrmhggmgf.supabase.co';
+const String supabasePublishableKey =
+    'sb_publishable_pElMPEafQ7OfXk0Vm4Rkgw_-TOaqKiR';
+
 // User Roles
 enum UserRole { admin, technician, client }
 
