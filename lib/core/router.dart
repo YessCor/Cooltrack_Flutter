@@ -1,47 +1,52 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'providers/auth_provider.dart';
-import 'core/constants.dart';
+import '../providers/auth_provider.dart';
+import 'constants.dart';
 
 // Auth screens
-import 'features/auth/views/login_screen.dart';
-import 'features/auth/views/forgot_password_screen.dart';
+import '../features/auth/views/login_screen.dart';
+import '../features/auth/views/forgot_password_screen.dart';
 
 // Admin screens
-import 'features/admin/views/admin_layout.dart';
-import 'features/admin/views/admin_dashboard_screen.dart';
-import 'features/admin/views/admin_clients_screen.dart';
-import 'features/admin/views/admin_client_new_screen.dart';
-import 'features/admin/views/admin_client_detail_screen.dart';
-import 'features/admin/views/admin_technicians_screen.dart';
-import 'features/admin/views/admin_create_technician_screen.dart';
-import 'features/admin/views/admin_orders_screen.dart';
-import 'features/admin/views/admin_order_detail_screen.dart';
-import 'features/admin/views/admin_quotes_screen.dart';
-import 'features/admin/views/admin_quote_new_screen.dart';
-import 'features/admin/views/admin_equipment_screen.dart';
-import 'features/admin/views/admin_equipment_new_screen.dart';
-import 'features/admin/views/admin_equipment_detail_screen.dart';
+import '../features/admin/views/admin_layout.dart';
+import '../features/admin/views/admin_dashboard_screen.dart';
+import '../features/admin/views/admin_clients_screen.dart';
+import '../features/admin/views/admin_client_new_screen.dart';
+import '../features/admin/views/admin_client_detail_screen.dart';
+import '../features/admin/views/admin_technicians_screen.dart';
+import '../features/admin/views/admin_create_technician_screen.dart';
+import '../features/admin/views/admin_orders_screen.dart';
+import '../features/admin/views/admin_order_detail_screen.dart';
+import '../features/admin/views/admin_quotes_screen.dart';
+import '../features/admin/views/admin_quote_new_screen.dart';
+import '../features/admin/views/admin_equipment_screen.dart';
+import '../features/admin/views/admin_equipment_new_screen.dart';
+import '../features/admin/views/admin_equipment_detail_screen.dart';
+import '../features/admin/views/admin_service_catalog_screen.dart';
+import '../features/admin/views/admin_tech_tracking_screen.dart';
+import '../features/admin/views/admin_reports_screen.dart';
+import '../features/notifications/views/notifications_screen.dart';
 
 // Tech screens
-import 'features/tech/views/tech_layout.dart';
-import 'features/tech/views/tech_jobs_screen.dart';
-import 'features/tech/views/tech_job_detail_screen.dart';
-import 'features/tech/views/tech_quote_detail_screen.dart';
-import 'features/tech/views/tech_profile_screen.dart';
+import '../features/tech/views/tech_layout.dart';
+import '../features/tech/views/tech_jobs_screen.dart';
+import '../features/tech/views/tech_job_detail_screen.dart';
+import '../features/tech/views/tech_quote_detail_screen.dart';
+import '../features/tech/views/tech_profile_screen.dart';
 
 // Client screens
-import 'features/client/views/client_layout.dart';
-import 'features/client/views/client_home_screen.dart';
-import 'features/client/views/client_equipment_screen.dart';
-import 'features/client/views/client_equipment_detail_screen.dart';
-import 'features/client/views/client_equipment_new_screen.dart';
-import 'features/client/views/client_new_request_screen.dart';
-import 'features/client/views/client_service_detail_screen.dart';
-import 'features/client/views/client_quote_detail_screen.dart';
+import '../features/client/views/client_layout.dart';
+import '../features/client/views/client_home_screen.dart';
+import '../features/client/views/client_equipment_screen.dart';
+import '../features/client/views/client_equipment_detail_screen.dart';
+import '../features/client/views/client_equipment_new_screen.dart';
+import '../features/client/views/client_new_request_screen.dart';
+import '../features/client/views/client_service_detail_screen.dart';
+import '../features/client/views/client_quote_detail_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
+final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
@@ -82,20 +87,24 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'forgot-password',
         builder: (context, state) => const ForgotPasswordScreen(),
       ),
-
-      // Admin routes
       GoRoute(
-        path: '/admin',
-        name: 'admin',
-        builder: (context, state) => const AdminLayout(),
+        path: '/notifications',
+        name: 'notifications',
+        builder: (context, state) => const NotificationsScreen(),
+      ),
+
+      // Admin Shell
+      ShellRoute(
+        navigatorKey: _shellNavigatorKey,
+        builder: (context, state, child) => AdminLayout(child: child),
         routes: [
           GoRoute(
-            path: '',
+            path: '/admin',
             name: 'admin-dashboard',
             builder: (context, state) => const AdminDashboardScreen(),
           ),
           GoRoute(
-            path: 'clients',
+            path: '/admin/clients',
             name: 'admin-clients',
             builder: (context, state) => const AdminClientsScreen(),
             routes: [
@@ -115,7 +124,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(
-            path: 'technicians',
+            path: '/admin/technicians',
             name: 'admin-technicians',
             builder: (context, state) => const AdminTechniciansScreen(),
             routes: [
@@ -127,7 +136,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(
-            path: 'orders',
+            path: '/admin/orders',
             name: 'admin-orders',
             builder: (context, state) => const AdminOrdersScreen(),
             routes: [
@@ -142,7 +151,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(
-            path: 'quotes',
+            path: '/admin/quotes',
             name: 'admin-quotes',
             builder: (context, state) => const AdminQuotesScreen(),
             routes: [
@@ -154,7 +163,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(
-            path: 'equipment',
+            path: '/admin/equipment',
             name: 'admin-equipment',
             builder: (context, state) => const AdminEquipmentScreen(),
             routes: [
@@ -176,22 +185,35 @@ final routerProvider = Provider<GoRouter>((ref) {
               ),
             ],
           ),
+          GoRoute(
+            path: '/admin/catalog',
+            name: 'admin-catalog',
+            builder: (context, state) => const AdminServiceCatalogScreen(),
+          ),
+          GoRoute(
+            path: '/admin/tracking',
+            name: 'admin-tracking',
+            builder: (context, state) => const AdminTechTrackingScreen(),
+          ),
+          GoRoute(
+            path: '/admin/reports',
+            name: 'admin-reports',
+            builder: (context, state) => const AdminReportsScreen(),
+          ),
         ],
       ),
 
-      // Technician routes
-      GoRoute(
-        path: '/technician',
-        name: 'technician',
-        builder: (context, state) => const TechLayout(),
+      // Technician Shell
+      ShellRoute(
+        builder: (context, state, child) => TechLayout(child: child),
         routes: [
           GoRoute(
-            path: '',
+            path: '/technician',
             name: 'technician-jobs',
             builder: (context, state) => const TechJobsScreen(),
           ),
           GoRoute(
-            path: 'job/:id',
+            path: '/technician/job/:id',
             name: 'technician-job-detail',
             builder: (context, state) {
               final id = state.pathParameters['id']!;
@@ -199,7 +221,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             },
           ),
           GoRoute(
-            path: 'quote/:id',
+            path: '/technician/quote/:id',
             name: 'technician-quote-detail',
             builder: (context, state) {
               final id = state.pathParameters['id']!;
@@ -207,26 +229,24 @@ final routerProvider = Provider<GoRouter>((ref) {
             },
           ),
           GoRoute(
-            path: 'profile',
+            path: '/technician/profile',
             name: 'technician-profile',
             builder: (context, state) => const TechProfileScreen(),
           ),
         ],
       ),
 
-      // Client routes
-      GoRoute(
-        path: '/client',
-        name: 'client',
-        builder: (context, state) => const ClientLayout(),
+      // Client Shell
+      ShellRoute(
+        builder: (context, state, child) => ClientLayout(child: child),
         routes: [
           GoRoute(
-            path: '',
+            path: '/client',
             name: 'client-home',
             builder: (context, state) => const ClientHomeScreen(),
           ),
           GoRoute(
-            path: 'equipment',
+            path: '/client/equipment',
             name: 'client-equipment',
             builder: (context, state) => const ClientEquipmentScreen(),
             routes: [
@@ -246,12 +266,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(
-            path: 'new-request',
+            path: '/client/new-request',
             name: 'client-new-request',
             builder: (context, state) => const ClientNewRequestScreen(),
           ),
           GoRoute(
-            path: 'service/:id',
+            path: '/client/service/:id',
             name: 'client-service-detail',
             builder: (context, state) {
               final id = state.pathParameters['id']!;
@@ -259,7 +279,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             },
           ),
           GoRoute(
-            path: 'quote/:id',
+            path: '/client/quote/:id',
             name: 'client-quote-detail',
             builder: (context, state) {
               final id = state.pathParameters['id']!;
@@ -271,6 +291,3 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
-
-
-

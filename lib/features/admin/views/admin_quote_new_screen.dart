@@ -1,29 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme.dart';
-import '../../../core/api_client.dart';
-import '../../../models/quote.dart';
-
-final clientsListProvider = FutureProvider<List<dynamic>>((ref) async {
-  final api = ApiClient();
-  try {
-    final response = await api.get('/clients');
-    return response['data'] as List? ?? [];
-  } catch (e) {
-    return [];
-  }
-});
-
-final ordersListProvider = FutureProvider<List<dynamic>>((ref) async {
-  final api = ApiClient();
-  try {
-    final response = await api.get('/orders');
-    return response['data'] as List? ?? [];
-  } catch (e) {
-    return [];
-  }
-});
+import '../../../core/constants.dart';
+import '../providers/admin_provider.dart';
+import '../../../models/service_catalog.dart';
+import '../../../models/user.dart';
+import '../../../models/service_order.dart';
 
 class AdminQuoteNewScreen extends ConsumerStatefulWidget {
   const AdminQuoteNewScreen({super.key});
@@ -36,7 +20,7 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
   final _formKey = GlobalKey<FormState>();
   String? _selectedClientId;
   String? _selectedOrderId;
-  final _items = <_QuoteItemData>[];
+  final List<_QuoteItemRowData> _items = [];
   final _notesController = TextEditingController();
   bool _isSaving = false;
 
@@ -49,7 +33,7 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
   @override
   void dispose() {
     _notesController.dispose();
-    for (final item in _items) {
+    for (var item in _items) {
       item.dispose();
     }
     super.dispose();
@@ -57,7 +41,7 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
 
   void _addItem() {
     setState(() {
-      _items.add(_QuoteItemData());
+      _items.add(_QuoteItemRowData());
     });
   }
 
@@ -70,11 +54,11 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
     }
   }
 
-  double get _subtotal => _items.fold(0, (sum, item) => sum + (item.quantity * item.price));
+  double get _subtotal => _items.fold(0, (sum, item) => sum + item.total);
   double get _tax => _subtotal * 0.16;
   double get _total => _subtotal + _tax;
 
-  Future<void> _saveQuote() async {
+  Future<void> _createQuote() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedClientId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seleccione un cliente')));
@@ -82,28 +66,47 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
     }
 
     setState(() => _isSaving = true);
+    final supabase = Supabase.instance.client;
 
     try {
-      final api = ApiClient();
-      await api.post('/quotes', data: {
+      // 1. Crear la cabecera de la cotización
+      final quoteResponse = await supabase.from('quotes').insert({
         'client_id': _selectedClientId,
         'order_id': _selectedOrderId,
-        'items': _items.where((i) => i.description.isNotEmpty).map((i) => ({
-          'description': i.description,
-          'quantity': i.quantity,
-          'unit_price': i.price,
-        })).toList(),
-        'notes': _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
-        'valid_until': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
-      });
+        'status': 'sent',
+        'subtotal': _subtotal,
+        'tax_rate': 16.0,
+        'tax_amount': _tax,
+        'total': _total,
+        'notes': _notesController.text.trim(),
+        'valid_until': DateTime.now().add(const Duration(days: 15)).toIso8601String(),
+      }).select().single();
+
+      final String quoteId = quoteResponse['id'];
+
+      // 2. Crear los items
+      final List<Map<String, dynamic>> itemsData = _items.map((item) => {
+        'quote_id': quoteId,
+        'catalog_item_id': item.catalogItemId,
+        'description': item.descController.text,
+        'quantity': double.tryParse(item.qtyController.text) ?? 1.0,
+        'unit_price': double.tryParse(item.priceController.text) ?? 0.0,
+        'total': item.total,
+      }).toList();
+
+      await supabase.from('quote_items').insert(itemsData);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cotización creada')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cotización creada y enviada'), backgroundColor: AppColors.success)
+        );
         context.go('/admin/quotes');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error)
+        );
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -112,14 +115,13 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final clientsAsync = ref.watch(clientsListProvider);
-    final ordersAsync = ref.watch(ordersListProvider);
+    final clientsAsync = ref.watch(allClientsProvider);
+    final catalogAsync = ref.watch(serviceCatalogProvider);
+    final ordersAsync = ref.watch(recentOrdersProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Nueva Cotización'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
       ),
       body: Form(
         key: _formKey,
@@ -128,65 +130,78 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildSectionTitle('Cliente'),
-              const SizedBox(height: 12),
-              clientsAsync.when(
-                data: (clients) => DropdownButtonFormField<String>(
-                  value: _selectedClientId,
-                  decoration: _inputDecoration('Seleccionar Cliente', Icons.person),
-                  items: clients.map((c) => DropdownMenuItem(value: c['id'] as String, child: Text(c['name'] as String))).toList(),
-                  onChanged: (v) => setState(() => _selectedClientId = v),
-                  validator: (v) => v == null ? 'Required' : null,
-                ),
-                loading: () => const LinearProgressIndicator(),
-                error: (_, __) => const Text('Error'),
-              ),
-              const SizedBox(height: 24),
-              _buildSectionTitle('Orden (Opcional)'),
-              const SizedBox(height: 12),
-              ordersAsync.when(
-                data: (orders) => DropdownButtonFormField<String?>(
-                  value: _selectedOrderId,
-                  decoration: _inputDecoration('Seleccionar Orden', Icons.assignment),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('Sin orden')),
-                    ...orders.map((o) => DropdownMenuItem(value: o['id'] as String, child: Text(o['order_number'] as String))),
+              _buildCard(
+                title: 'Información General',
+                child: Column(
+                  children: [
+                    clientsAsync.when(
+                      data: (clients) => DropdownButtonFormField<String>(
+                        value: _selectedClientId,
+                        decoration: const InputDecoration(labelText: 'Cliente', prefixIcon: Icon(Icons.person_outline)),
+                        items: clients.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
+                        onChanged: (val) => setState(() => _selectedClientId = val),
+                        validator: (val) => val == null ? 'Seleccione un cliente' : null,
+                      ),
+                      loading: () => const LinearProgressIndicator(),
+                      error: (_, __) => const Text('Error al cargar clientes'),
+                    ),
+                    const SizedBox(height: 16),
+                    ordersAsync.when(
+                      data: (orders) => DropdownButtonFormField<String?>(
+                        value: _selectedOrderId,
+                        decoration: const InputDecoration(labelText: 'Vincular a Orden (Opcional)', prefixIcon: Icon(Icons.assignment_outlined)),
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('Ninguna')),
+                          ...orders.map((o) => DropdownMenuItem(value: o.id, child: Text('Orden #${o.orderNumber}'))),
+                        ],
+                        onChanged: (val) => setState(() => _selectedOrderId = val),
+                      ),
+                      loading: () => const LinearProgressIndicator(),
+                      error: (_, __) => const Text('Error al cargar órdenes'),
+                    ),
                   ],
-                  onChanged: (v) => setState(() => _selectedOrderId = v),
                 ),
-                loading: () => const LinearProgressIndicator(),
-                error: (_, __) => const Text('Error'),
               ),
               const SizedBox(height: 24),
-              _buildSectionTitle('Items'),
+              const Text('Items de la Cotización', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              ..._items.asMap().entries.map((entry) => _buildItemRow(entry.key, entry.value)),
+              catalogAsync.when(
+                data: (catalog) => Column(
+                  children: [
+                    ..._items.asMap().entries.map((entry) => _buildItemRow(entry.key, entry.value, catalog)),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _addItem,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Agregar otro item'),
+                    ),
+                  ],
+                ),
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Text('Error: $e'),
+              ),
+              const SizedBox(height: 24),
+              _buildTotalsCard(),
+              const SizedBox(height: 24),
+              const Text('Notas / Términos', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: _addItem,
-                icon: const Icon(Icons.add),
-                label: const Text('Agregar Item'),
-              ),
-              const SizedBox(height: 16),
-              _buildTotals(),
-              const SizedBox(height: 24),
-              _buildSectionTitle('Notas'),
-              const SizedBox(height: 12),
               TextFormField(
                 controller: _notesController,
                 maxLines: 3,
-                decoration: _inputDecoration('Notas adicionales', Icons.notes),
+                decoration: const InputDecoration(hintText: 'Ej: Válido por 15 días. Incluye materiales.'),
               ),
               const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
-                height: 48,
+                height: 50,
                 child: ElevatedButton(
-                  onPressed: _isSaving ? null : _saveQuote,
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.secondary, foregroundColor: Colors.white),
-                  child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text('Crear Cotización'),
+                  onPressed: _isSaving ? null : _createQuote,
+                  child: _isSaving 
+                    ? const CircularProgressIndicator(color: Colors.white) 
+                    : const Text('Generar Cotización', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ),
+              const SizedBox(height: 40),
             ],
           ),
         ),
@@ -194,9 +209,24 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) => Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold));
+  Widget _buildCard({required String title, required Widget child}) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            const Divider(),
+            const SizedBox(height: 8),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
 
-  Widget _buildItemRow(int index, _QuoteItemData item) {
+  Widget _buildItemRow(int index, _QuoteItemRowData item, List<ServiceCatalog> catalog) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -205,16 +235,68 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
           children: [
             Row(
               children: [
-                Expanded(flex: 3, child: TextFormField(controller: item.descController, decoration: _inputDecoration('Descripción', Icons.description))),
-                if (_items.length > 1) IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _removeItem(index)),
+                Expanded(
+                  child: DropdownButtonFormField<String?>(
+                    value: item.catalogItemId,
+                    decoration: const InputDecoration(labelText: 'Servicio del Catálogo'),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('Manual / Otro')),
+                      ...catalog.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))),
+                    ],
+                    onChanged: (val) {
+                      setState(() {
+                        item.catalogItemId = val;
+                        if (val != null) {
+                          final catalogItem = catalog.firstWhere((element) => element.id == val);
+                          item.descController.text = catalogItem.name;
+                          item.priceController.text = catalogItem.basePrice.toString();
+                        }
+                      });
+                    },
+                  ),
+                ),
+                if (_items.length > 1)
+                  IconButton(icon: const Icon(Icons.delete_outline, color: AppColors.error), onPressed: () => _removeItem(index)),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: item.descController,
+              decoration: const InputDecoration(labelText: 'Descripción personalizada'),
+              validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+            ),
+            const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: TextFormField(controller: item.qtyController, keyboardType: TextInputType.number, decoration: _inputDecoration('Cantidad', Icons.numbers), onChanged: (_) => setState(() {}))),
-                const SizedBox(width: 8),
-                Expanded(child: TextFormField(controller: item.priceController, keyboardType: TextInputType.number, decoration: _inputDecoration('Precio', Icons.attach_money), onChanged: (_) => setState(() {}))),
+                Expanded(
+                  child: TextFormField(
+                    controller: item.qtyController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Cant.'),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: item.priceController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Precio Unit.', prefixText: '\$'),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text('Total Item', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                      Text('\$${item.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
               ],
             ),
           ],
@@ -223,48 +305,46 @@ class _AdminQuoteNewScreenState extends ConsumerState<AdminQuoteNewScreen> {
     );
   }
 
-  Widget _buildTotals() {
+  Widget _buildTotalsCard() {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppColors.primary.withOpacity(0.05),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _totalRow('Subtotal', _subtotal),
-            const SizedBox(height: 8),
-            _totalRow('IVA (16%)', _tax),
-            const Divider(height: 24),
-            _totalRow('Total', _total, isBold: true),
+            _rowTotal('Subtotal', _subtotal),
+            const SizedBox(height: 4),
+            _rowTotal('IVA (16%)', _tax),
+            const Divider(),
+            _rowTotal('TOTAL', _total, isBold: true, color: AppColors.secondary),
           ],
         ),
       ),
     );
   }
 
-  Widget _totalRow(String label, double amount, {bool isBold = false}) {
+  Widget _rowTotal(String label, double val, {bool isBold = false, Color? color}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: isBold ? 18 : 14)),
-        Text('\$${amount.toStringAsFixed(2)}', style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: isBold ? 18 : 14, color: isBold ? AppColors.secondary : null)),
+        Text(label, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+        Text('\$${val.toStringAsFixed(2)}', style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: color, fontSize: isBold ? 18 : 14)),
       ],
     );
   }
-
-  InputDecoration _inputDecoration(String label, IconData icon) {
-    return InputDecoration(labelText: label, prefixIcon: Icon(icon, color: AppColors.textMuted), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)));
-  }
 }
 
-class _QuoteItemData {
-  final TextEditingController descController = TextEditingController();
-  final TextEditingController qtyController = TextEditingController(text: '1');
-  final TextEditingController priceController = TextEditingController(text: '0');
+class _QuoteItemRowData {
+  String? catalogItemId;
+  final descController = TextEditingController();
+  final qtyController = TextEditingController(text: '1');
+  final priceController = TextEditingController(text: '0');
 
-  String get description => descController.text.trim();
-  int get quantity => int.tryParse(qtyController.text) ?? 1;
-  double get price => double.tryParse(priceController.text) ?? 0;
+  double get total {
+    final qty = double.tryParse(qtyController.text) ?? 0;
+    final price = double.tryParse(priceController.text) ?? 0;
+    return qty * price;
+  }
 
   void dispose() {
     descController.dispose();

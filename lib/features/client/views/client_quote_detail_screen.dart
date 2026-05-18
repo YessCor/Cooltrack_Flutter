@@ -2,33 +2,66 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme.dart';
 import '../../../core/constants.dart';
-import '../../../core/api_client.dart';
 import '../../../models/quote.dart';
+import '../providers/client_provider.dart';
+import '../../../services/pdf_service.dart';
+import '../../../providers/auth_provider.dart';
 
-final clientQuoteDetailProvider = FutureProvider.family<Quote?, String>((ref, id) async {
-  final api = ApiClient();
-  try {
-    final response = await api.get('/quotes/$id');
-    return Quote.fromJson(response['data']);
-  } catch (e) {
-    return null;
-  }
-});
-
-class ClientQuoteDetailScreen extends ConsumerWidget {
+class ClientQuoteDetailScreen extends ConsumerStatefulWidget {
   final String quoteId;
 
   const ClientQuoteDetailScreen({super.key, required this.quoteId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final quoteAsync = ref.watch(clientQuoteDetailProvider(quoteId));
+  ConsumerState<ClientQuoteDetailScreen> createState() => _ClientQuoteDetailScreenState();
+}
+
+class _ClientQuoteDetailScreenState extends ConsumerState<ClientQuoteDetailScreen> {
+  bool _isProcessing = false;
+
+  Future<void> _updateStatus(QuoteStatus status) async {
+    setState(() => _isProcessing = true);
+    try {
+      await ref.read(updateQuoteStatusProvider)(widget.quoteId, status);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(status == QuoteStatus.approved ? 'Cotización aprobada' : 'Cotización rechazada'),
+            backgroundColor: status == QuoteStatus.approved ? AppColors.success : AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final quoteAsync = ref.watch(clientQuoteDetailProvider(widget.quoteId));
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detalle de Cotización'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        actions: [
+          quoteAsync.when(
+            data: (quote) => quote != null ? IconButton(
+              icon: const Icon(Icons.picture_as_pdf),
+              onPressed: () {
+                final client = ref.read(authProvider).user;
+                PdfService().previewQuotePdf(quote, client);
+              },
+            ) : const SizedBox.shrink(),
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+        ],
       ),
       body: quoteAsync.when(
         data: (quote) {
@@ -43,7 +76,7 @@ class ClientQuoteDetailScreen extends ConsumerWidget {
                 _buildHeader(quote),
                 const SizedBox(height: 24),
                 _buildInfoSection('Información', [
-                  _InfoRow('Número', quote.quoteNumber),
+                  _InfoRow('Número', 'QT-${quote.quoteNumber.toString().padLeft(4, '0')}'),
                   _InfoRow('Fecha', _formatDate(quote.createdAt)),
                   _InfoRow('Estado', quote.statusLabel),
                 ]),
@@ -53,18 +86,21 @@ class ClientQuoteDetailScreen extends ConsumerWidget {
                     _InfoRow('Válida hasta', _formatDate(quote.validUntil!)),
                   ]),
                 ],
-                const SizedBox(height: 16),
-                _buildItemsSection(quote),
-                const SizedBox(height: 16),
-                _buildTotalsSection(quote),
-                if (quote.notes != null) ...[
-                  const SizedBox(height: 16),
-                  _buildInfoSection('Notas', [
+                const SizedBox(height: 24),
+                const Text('Items del servicio', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                _buildItemsList(quote),
+                const SizedBox(height: 24),
+                _buildTotalsCard(quote),
+                if (quote.notes != null && quote.notes!.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  _buildInfoSection('Notas del Técnico', [
                     _InfoRow('', quote.notes!),
                   ]),
                 ],
-                const SizedBox(height: 24),
-                _buildActionButtons(context, quote),
+                const SizedBox(height: 40),
+                if (quote.status == QuoteStatus.sent) _buildActionButtons(),
+                const SizedBox(height: 40),
               ],
             ),
           );
@@ -76,31 +112,25 @@ class ClientQuoteDetailScreen extends ConsumerWidget {
   }
 
   Widget _buildHeader(Quote quote) {
+    final color = _getStatusColor(quote.status);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _getStatusColor(quote.status).withValues(alpha: 0.1),
+        color: color.withOpacity(0.05),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _getStatusColor(quote.status).withValues(alpha: 0.3)),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
         children: [
-          Icon(_getStatusIcon(quote.status), color: _getStatusColor(quote.status), size: 48),
+          Icon(_getStatusIcon(quote.status), color: color, size: 48),
           const SizedBox(height: 12),
           Text(
             quote.statusLabel,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: _getStatusColor(quote.status),
-            ),
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
           ),
           const SizedBox(height: 4),
-          Text(
-            quote.quoteNumber,
-            style: TextStyle(color: AppColors.textMuted),
-          ),
+          Text('Código: QT-${quote.quoteNumber}', style: const TextStyle(color: AppColors.textMuted)),
         ],
       ),
     );
@@ -110,24 +140,19 @@ class ClientQuoteDetailScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
+        if (title.isNotEmpty) Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
         Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
-              children: rows.where((r) => r.value.isNotEmpty).map((row) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+              children: rows.map((row) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(row.label, style: TextStyle(color: AppColors.textMuted)),
-                    Flexible(
+                    if (row.label.isNotEmpty) Text(row.label, style: const TextStyle(color: AppColors.textMuted)),
+                    Expanded(
                       child: Text(
                         row.value,
                         style: const TextStyle(fontWeight: FontWeight.w500),
@@ -144,164 +169,112 @@ class ClientQuoteDetailScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildItemsSection(Quote quote) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Items',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: quote.items.length,
-            separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
-            itemBuilder: (context, index) {
-              final item = quote.items[index];
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(item.description, style: const TextStyle(fontWeight: FontWeight.w500)),
-                          if (item.quantity > 1)
-                            Text('Cantidad: ${item.quantity}', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '\$${item.unitPrice.toStringAsFixed(2)}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ],
+  Widget _buildItemsList(Quote quote) {
+    final items = quote.items ?? [];
+    return Card(
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return ListTile(
+            title: Text(item.description),
+            subtitle: Text('Cantidad: ${item.quantity.toStringAsFixed(0)}'),
+            trailing: Text('\$${item.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+          );
+        },
+      ),
     );
   }
 
-  Widget _buildTotalsSection(Quote quote) {
+  Widget _buildTotalsCard(Quote quote) {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppColors.primary.withOpacity(0.05),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Subtotal'),
-                Text('\$${quote.subtotal.toStringAsFixed(2)}'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('IVA (16%)'),
-                Text('\$${quote.tax.toStringAsFixed(2)}'),
-              ],
-            ),
+            _totalRow('Subtotal', quote.subtotal),
+            const SizedBox(height: 4),
+            _totalRow('IVA (16%)', quote.taxAmount),
             const Divider(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                Text(
-                  '\$${quote.total.toStringAsFixed(2)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.secondary),
-                ),
-              ],
-            ),
+            _totalRow('TOTAL', quote.total, isBold: true, color: AppColors.secondary),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildActionButtons(BuildContext context, Quote quote) {
-    if (quote.status == QuoteStatus.sent) {
-      return Row(
-        children: [
-          Expanded(
-            child: OutlinedButton(
-              onPressed: () {},
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red,
-                side: const BorderSide(color: Colors.red),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: const Text('Rechazar'),
-            ),
+  Widget _totalRow(String label, double amount, {bool isBold = false, Color? color}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: isBold ? 18 : 14)),
+        Text(
+          '\$${amount.toStringAsFixed(2)}',
+          style: TextStyle(
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal, 
+            fontSize: isBold ? 18 : 14, 
+            color: color
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: const Text('Aprobar'),
-            ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            onPressed: _isProcessing ? null : () => _updateStatus(QuoteStatus.approved),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+            child: _isProcessing 
+              ? const CircularProgressIndicator(color: Colors.white) 
+              : const Text('Aprobar Cotización', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
-        ],
-      );
-    }
-    return const SizedBox.shrink();
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton(
+            onPressed: _isProcessing ? null : () => _updateStatus(QuoteStatus.rejected),
+            style: OutlinedButton.styleFrom(foregroundColor: AppColors.error, side: const BorderSide(color: AppColors.error)),
+            child: const Text('Rechazar Cotización'),
+          ),
+        ),
+      ],
+    );
   }
 
   Color _getStatusColor(QuoteStatus status) {
     switch (status) {
-      case QuoteStatus.draft:
-        return Colors.grey;
-      case QuoteStatus.sent:
-        return Colors.blue;
-      case QuoteStatus.approved:
-        return Colors.green;
-      case QuoteStatus.rejected:
-        return Colors.red;
-      case QuoteStatus.expired:
-        return Colors.orange;
+      case QuoteStatus.sent: return Colors.blue;
+      case QuoteStatus.approved: return AppColors.success;
+      case QuoteStatus.rejected: return AppColors.error;
+      default: return Colors.grey;
     }
   }
 
   IconData _getStatusIcon(QuoteStatus status) {
     switch (status) {
-      case QuoteStatus.draft:
-        return Icons.edit;
-      case QuoteStatus.sent:
-        return Icons.send;
-      case QuoteStatus.approved:
-        return Icons.check_circle;
-      case QuoteStatus.rejected:
-        return Icons.cancel;
-      case QuoteStatus.expired:
-        return Icons.timer_off;
+      case QuoteStatus.approved: return Icons.check_circle;
+      case QuoteStatus.rejected: return Icons.cancel;
+      case QuoteStatus.sent: return Icons.mark_as_unread;
+      default: return Icons.help_outline;
     }
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
-  }
+  String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 }
 
 class _InfoRow {
   final String label;
   final String value;
-
   _InfoRow(this.label, this.value);
 }

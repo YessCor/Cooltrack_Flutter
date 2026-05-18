@@ -2,25 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
-import '../../../core/api_client.dart';
-import '../../../providers/auth_provider.dart';
-import '../../../models/equipment.dart';
-
-final clientEquipmentForRequestProvider = FutureProvider<List<Equipment>>((ref) async {
-  final api = ApiClient();
-  final auth = ref.watch(authProvider);
-  final userId = auth.user?.id;
-  
-  if (userId == null) return [];
-  
-  try {
-    final response = await api.get('/equipment', queryParams: {'client_id': userId});
-    final data = response['data'] as List? ?? [];
-    return data.map((json) => Equipment.fromJson(json)).toList();
-  } catch (e) {
-    return [];
-  }
-});
+import '../providers/client_provider.dart';
 
 class ClientNewRequestScreen extends ConsumerStatefulWidget {
   const ClientNewRequestScreen({super.key});
@@ -31,28 +13,17 @@ class ClientNewRequestScreen extends ConsumerStatefulWidget {
 
 class _ClientNewRequestScreenState extends ConsumerState<ClientNewRequestScreen> {
   final _formKey = GlobalKey<FormState>();
+  String? _selectedEquipmentId;
+  String _serviceType = 'Mantenimiento Preventivo';
   final _descriptionController = TextEditingController();
   final _addressController = TextEditingController();
-  
-  String _selectedServiceType = 'maintenance';
-  String _selectedPriority = 'normal';
-  String? _selectedEquipmentId;
-  DateTime? _scheduledDate;
-  bool _isLoading = false;
 
-  final List<Map<String, String>> _serviceTypes = [
-    {'value': 'maintenance', 'label': 'Mantenimiento'},
-    {'value': 'repair', 'label': 'Reparación'},
-    {'value': 'installation', 'label': 'Instalación'},
-    {'value': 'inspection', 'label': 'Inspección'},
-    {'value': 'other', 'label': 'Otro'},
-  ];
-
-  final List<Map<String, String>> _priorities = [
-    {'value': 'low', 'label': 'Baja'},
-    {'value': 'normal', 'label': 'Normal'},
-    {'value': 'high', 'label': 'Alta'},
-    {'value': 'urgent', 'label': 'Urgente'},
+  final List<String> _serviceTypes = [
+    'Mantenimiento Preventivo',
+    'Reparación / Correctivo',
+    'Instalación',
+    'Revisión Técnica',
+    'Limpieza profunda',
   ];
 
   @override
@@ -62,240 +33,128 @@ class _ClientNewRequestScreenState extends ConsumerState<ClientNewRequestScreen>
     super.dispose();
   }
 
-  Future<void> _selectDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 90)),
-    );
-    if (picked != null) {
-      setState(() => _scheduledDate = picked);
-    }
-  }
-
   Future<void> _submitRequest() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    final auth = ref.read(authProvider);
-    final userId = auth.user?.id;
-    if (userId == null) {
-      _showError('Usuario no identificado');
+    if (!_formKey.currentState!.validate() || _selectedEquipmentId == null) {
+      if (_selectedEquipmentId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Por favor selecciona un equipo')),
+        );
+      }
       return;
     }
 
-    setState(() => _isLoading = true);
-
-    try {
-      final api = ApiClient();
-      await api.post('/orders', data: {
-        'client_id': userId,
-        'service_type': _selectedServiceType,
-        'priority': _selectedPriority,
-        'description': _descriptionController.text.trim(),
-        'equipment_id': _selectedEquipmentId,
-        'address': _addressController.text.trim(),
-        'scheduled_date': _scheduledDate?.toIso8601String(),
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Solicitud enviada exitosamente')),
-        );
-        context.go('/client');
-      }
-    } catch (e) {
-      if (mounted) {
-        _showError('Error al enviar la solicitud');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    final success = await ref.read(newRequestProvider.notifier).createRequest(
+      equipmentId: _selectedEquipmentId!,
+      serviceType: _serviceType,
+      description: _descriptionController.text,
+      address: _addressController.text,
     );
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solicitud enviada con éxito'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      context.go('/client');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final equipmentAsync = ref.watch(clientEquipmentForRequestProvider);
+    final equipmentAsync = ref.watch(clientEquipmentProvider);
+    final requestState = ref.watch(newRequestProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nueva Solicitud'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        title: const Text('Solicitar Servicio'),
       ),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildSectionTitle('Tipo de Servicio'),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedServiceType,
-                decoration: _inputDecoration('Tipo de Servicio', Icons.build),
-                items: _serviceTypes.map((type) {
-                  return DropdownMenuItem(
-                    value: type['value'],
-                    child: Text(type['label']!),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _selectedServiceType = value);
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedPriority,
-                decoration: _inputDecoration('Prioridad', Icons.priority_high),
-                items: _priorities.map((priority) {
-                  return DropdownMenuItem(
-                    value: priority['value'],
-                    child: Text(priority['label']!),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _selectedPriority = value);
-                  }
-                },
+              const Text(
+                'Completa los detalles para tu solicitud de servicio técnico.',
+                style: TextStyle(color: AppColors.textSecondary),
               ),
               const SizedBox(height: 24),
-              _buildSectionTitle('Detalles'),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _descriptionController,
-                decoration: _inputDecoration('Descripción del Problema *', Icons.description),
-                maxLines: 4,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Describa el problema';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _addressController,
-                decoration: _inputDecoration('Dirección *', Icons.location_on),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Ingrese la dirección';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              _buildSectionTitle('Equipo (Opcional)'),
-              const SizedBox(height: 16),
+
+              // Selección de Equipo
+              const Text('¿Para qué equipo es el servicio?', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
               equipmentAsync.when(
-                data: (equipment) {
-                  return DropdownButtonFormField<String?>(
-                    value: _selectedEquipmentId,
-                    decoration: _inputDecoration('Seleccionar Equipo', Icons.hvac),
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text('Sin equipo específico'),
-                      ),
-                      ...equipment.map((eq) {
-                        return DropdownMenuItem(
-                          value: eq.id,
-                          child: Text(eq.name),
-                        );
-                      }),
-                    ],
-                    onChanged: (value) {
-                      setState(() => _selectedEquipmentId = value);
-                    },
-                  );
-                },
+                data: (list) => DropdownButtonFormField<String>(
+                  value: _selectedEquipmentId,
+                  decoration: const InputDecoration(hintText: 'Selecciona un equipo'),
+                  items: list.map((e) => DropdownMenuItem(
+                    value: e.id,
+                    child: Text(e.name),
+                  )).toList(),
+                  onChanged: (val) => setState(() => _selectedEquipmentId = val),
+                  validator: (val) => val == null ? 'Campo requerido' : null,
+                ),
                 loading: () => const LinearProgressIndicator(),
                 error: (_, __) => const Text('Error al cargar equipos'),
               ),
-              const SizedBox(height: 24),
-              _buildSectionTitle('Fecha Programada (Opcional)'),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: _selectDate,
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.calendar_today, color: AppColors.textMuted),
-                      const SizedBox(width: 12),
-                      Text(
-                        _scheduledDate != null
-                            ? '${_scheduledDate!.day}/${_scheduledDate!.month}/${_scheduledDate!.year}'
-                            : 'Seleccionar fecha',
-                        style: TextStyle(
-                          color: _scheduledDate != null ? Colors.black : AppColors.textMuted,
-                        ),
-                      ),
-                    ],
-                  ),
+              const SizedBox(height: 20),
+
+              // Tipo de Servicio
+              const Text('Tipo de servicio', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _serviceType,
+                decoration: const InputDecoration(),
+                items: _serviceTypes.map((t) => DropdownMenuItem(
+                  value: t,
+                  child: Text(t),
+                )).toList(),
+                onChanged: (val) => setState(() => _serviceType = val!),
+              ),
+              const SizedBox(height: 20),
+
+              // Dirección
+              const Text('Dirección del servicio', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _addressController,
+                decoration: const InputDecoration(
+                  hintText: 'Ej: Calle 123 #45-67, Edificio X, Apto Y',
+                  prefixIcon: Icon(Icons.location_on_outlined),
                 ),
+                validator: (val) => val == null || val.isEmpty ? 'Campo requerido' : null,
+              ),
+              const SizedBox(height: 20),
+
+              // Descripción
+              const Text('Descripción del problema', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _descriptionController,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  hintText: 'Describe brevemente qué sucede con tu equipo...',
+                ),
+                validator: (val) => val == null || val.isEmpty ? 'Campo requerido' : null,
               ),
               const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _submitRequest,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.secondary,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Text('Enviar Solicitud', style: TextStyle(fontSize: 16)),
+
+              // Botón de Envío
+              ElevatedButton(
+                onPressed: requestState.isLoading ? null : _submitRequest,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
+                child: requestState.isLoading
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Enviar Solicitud', style: TextStyle(fontSize: 16)),
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-    );
-  }
-
-  InputDecoration _inputDecoration(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      prefixIcon: Icon(icon, color: AppColors.textMuted),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade300),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.secondary, width: 2),
       ),
     );
   }

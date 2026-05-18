@@ -3,12 +3,13 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
 
 class TechLayout extends StatelessWidget {
-  const TechLayout({super.key});
+  final Widget child;
+  const TechLayout({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: const _TechBody(),
+      body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(context),
         onTap: (index) => _onItemTapped(index, context),
@@ -46,18 +47,5 @@ class TechLayout extends StatelessWidget {
         context.go('/technician/profile');
         break;
     }
-  }
-}
-
-class _TechBody extends StatelessWidget {
-  const _TechBody();
-
-  @override
-  Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).matchedLocation;
-    if (location.contains('/profile')) {
-      return const SizedBox.shrink();
-    }
-    return const SizedBox.shrink();
   }
 }

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 
 class OfflineRepository {
@@ -21,114 +20,92 @@ class OfflineRepository {
     await Hive.openBox(_settingsBox);
   }
 
-  // Orders
+  // Orders Cache
   Future<void> cacheOrders(List<Map<String, dynamic>> orders) async {
-    final box = Hive.box(_ordersBox);
-    await box.put('orders', jsonEncode(orders));
+    await Hive.box(_ordersBox).put('orders', orders);
   }
 
   List<Map<String, dynamic>> getCachedOrders() {
-    final box = Hive.box(_ordersBox);
-    final data = box.get('orders');
+    final data = Hive.box(_ordersBox).get('orders');
     if (data == null) return [];
-    return List<Map<String, dynamic>>.from(jsonDecode(data));
+    return List<Map<String, dynamic>>.from(data.map((item) => Map<String, dynamic>.from(item)));
   }
 
-  Future<void> addPendingOrder(Map<String, dynamic> order) async {
-    final box = Hive.box(_ordersBox);
-    final pending = box.get('pending_orders') ?? [];
-    pending.add(order);
-    await box.put('pending_orders', pending);
-  }
-
-  List<Map<String, dynamic>> getPendingOrders() {
-    final box = Hive.box(_ordersBox);
-    final data = box.get('pending_orders');
-    if (data == null) return [];
-    return List<Map<String, dynamic>>.from(data);
-  }
-
-  // Equipment
+  // Equipment Cache
   Future<void> cacheEquipment(List<Map<String, dynamic>> equipment) async {
-    final box = Hive.box(_equipmentBox);
-    await box.put('equipment', jsonEncode(equipment));
+    await Hive.box(_equipmentBox).put('equipment', equipment);
   }
 
   List<Map<String, dynamic>> getCachedEquipment() {
-    final box = Hive.box(_equipmentBox);
-    final data = box.get('equipment');
+    final data = Hive.box(_equipmentBox).get('equipment');
     if (data == null) return [];
-    return List<Map<String, dynamic>>.from(jsonDecode(data));
+    return List<Map<String, dynamic>>.from(data.map((item) => Map<String, dynamic>.from(item)));
   }
 
-  // Quotes
+  // Quotes Cache
   Future<void> cacheQuotes(List<Map<String, dynamic>> quotes) async {
-    final box = Hive.box(_quotesBox);
-    await box.put('quotes', jsonEncode(quotes));
+    await Hive.box(_quotesBox).put('quotes', quotes);
   }
 
   List<Map<String, dynamic>> getCachedQuotes() {
-    final box = Hive.box(_quotesBox);
-    final data = box.get('quotes');
+    final data = Hive.box(_quotesBox).get('quotes');
     if (data == null) return [];
-    return List<Map<String, dynamic>>.from(jsonDecode(data));
+    return List<Map<String, dynamic>>.from(data.map((item) => Map<String, dynamic>.from(item)));
   }
 
-  // Sync Queue
+  // Sync Queue (The "Brain" for offline synchronization)
   Future<void> addToSyncQueue(Map<String, dynamic> item) async {
     final box = Hive.box(_syncQueueBox);
-    final queue = box.get('queue') ?? [];
-    queue.add({
+    final List<dynamic> queue = box.get('queue', defaultValue: <dynamic>[]);
+    final List<dynamic> updatedQueue = List<dynamic>.from(queue);
+    updatedQueue.add({
       ...item,
       'timestamp': DateTime.now().toIso8601String(),
     });
-    await box.put('queue', queue);
+    await box.put('queue', updatedQueue);
   }
 
   List<Map<String, dynamic>> getSyncQueue() {
-    final box = Hive.box(_syncQueueBox);
-    final data = box.get('queue');
+    final data = Hive.box(_syncQueueBox).get('queue');
     if (data == null) return [];
-    return List<Map<String, dynamic>>.from(data);
-  }
-
-  Future<void> clearSyncQueue() async {
-    final box = Hive.box(_syncQueueBox);
-    await box.delete('queue');
+    return List<Map<String, dynamic>>.from(data.map((item) => Map<String, dynamic>.from(item)));
   }
 
   Future<void> removeSyncItem(int index) async {
     final box = Hive.box(_syncQueueBox);
-    final queue = box.get('queue') ?? [];
+    final List<dynamic> queue = box.get('queue', defaultValue: <dynamic>[]);
     if (index >= 0 && index < queue.length) {
-      queue.removeAt(index);
-      await box.put('queue', queue);
+      final List<dynamic> updatedQueue = List<dynamic>.from(queue);
+      updatedQueue.removeAt(index);
+      await box.put('queue', updatedQueue);
     }
   }
 
-  // Settings
-  Future<void> saveSetting(String key, dynamic value) async {
-    final box = Hive.box(_settingsBox);
-    await box.put(key, value);
+  Future<void> clearSyncQueue() async {
+    await Hive.box(_syncQueueBox).delete('queue');
   }
 
-  T? getSetting<T>(String key, {T? defaultValue}) {
-    final box = Hive.box(_settingsBox);
-    return box.get(key, defaultValue: defaultValue) as T?;
-  }
-
-  // Last sync
+  // Settings & Last Sync
   Future<void> setLastSyncTime(DateTime time) async {
-    await saveSetting('last_sync', time.toIso8601String());
+    await Hive.box(_settingsBox).put('last_sync', time.toIso8601String());
   }
 
   DateTime? getLastSyncTime() {
-    final timeStr = getSetting<String>('last_sync');
+    final timeStr = Hive.box(_settingsBox).get('last_sync');
     if (timeStr == null) return null;
     return DateTime.tryParse(timeStr);
   }
 
-  // Clear all cache
+  // Generic settings storage
+  Future<void> saveSetting(String key, dynamic value) async {
+    await Hive.box(_settingsBox).put(key, value);
+  }
+
+  T? getSetting<T>(String key, {T? defaultValue}) {
+    return Hive.box(_settingsBox).get(key, defaultValue: defaultValue) as T?;
+  }
+
+  // Clear all cache (useful for Logout)
   Future<void> clearAllCache() async {
     await Hive.box(_ordersBox).clear();
     await Hive.box(_equipmentBox).clear();

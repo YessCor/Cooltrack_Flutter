@@ -1,0 +1,5 @@
+.env.local
+
+# (opcional) por si el archivo cambia de nombre o se generan variantes
+.env.local.*
+

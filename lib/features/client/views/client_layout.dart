@@ -3,12 +3,13 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
 
 class ClientLayout extends StatelessWidget {
-  const ClientLayout({super.key});
+  final Widget child;
+  const ClientLayout({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: const _ClientBody(),
+      body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(context),
         onTap: (index) => _onItemTapped(index, context),
@@ -55,14 +56,5 @@ class ClientLayout extends StatelessWidget {
         context.go('/client/new-request');
         break;
     }
-  }
-}
-
-class _ClientBody extends StatelessWidget {
-  const _ClientBody();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox.shrink();
   }
 }

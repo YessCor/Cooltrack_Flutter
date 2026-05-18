@@ -5,17 +5,54 @@ import '../../../core/theme.dart';
 import '../../../core/constants.dart';
 import '../providers/tech_jobs_provider.dart';
 
+import '../../../components/sync_indicator.dart';
+
+import '../../../services/location_service.dart';
+
+import '../../../components/sync_indicator.dart';
+import '../../../providers/notification_provider.dart';
+
 class TechJobsScreen extends ConsumerWidget {
   const TechJobsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Iniciar rastreo de ubicación del técnico al entrar a su pantalla principal
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      LocationService().startTrackingTechnician();
+    });
+
     final jobsAsync = ref.watch(techJobsProvider);
+    final unreadCount = ref.watch(unreadNotificationsCountProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mis Trabajos'),
         actions: [
+          const SyncIndicator(),
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_none),
+                onPressed: () => context.push('/notifications'),
+              ),
+              if (unreadCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(10)),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      unreadCount > 9 ? '9+' : '$unreadCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.refresh(techJobsProvider),

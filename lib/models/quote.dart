@@ -5,7 +5,7 @@ class QuoteItem {
   final String quoteId;
   final String? catalogItemId;
   final String description;
-  final int quantity;
+  final double quantity;
   final double unitPrice;
   final double total;
   final DateTime createdAt;
@@ -27,12 +27,13 @@ class QuoteItem {
       quoteId: json['quote_id'] as String,
       catalogItemId: json['catalog_item_id'] as String?,
       description: json['description'] as String,
-      quantity: json['quantity'] as int,
+      quantity: (json['quantity'] as num).toDouble(),
       unitPrice: (json['unit_price'] as num).toDouble(),
       total: (json['total'] as num).toDouble(),
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
+
 
   Map<String, dynamic> toJson() {
     return {

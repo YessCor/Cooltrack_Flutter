@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
-import '../core/api_client.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'offline_repository.dart';
+import 'photo_upload_service.dart';
 
 enum SyncStatus { idle, syncing, success, error }
 
@@ -22,7 +24,8 @@ class SyncService {
   SyncService._internal();
 
   final OfflineRepository _offlineRepo = OfflineRepository();
-  final ApiClient _api = ApiClient();
+  final PhotoUploadService _photoService = PhotoUploadService();
+  final SupabaseClient _supabase = Supabase.instance.client;
   
   SyncStatus _status = SyncStatus.idle;
   SyncStatus get status => _status;
@@ -49,16 +52,19 @@ class SyncService {
       final queue = _offlineRepo.getSyncQueue();
       int syncedCount = 0;
 
-      for (int i = queue.length - 1; i >= 0; i--) {
-        final item = queue[i];
+      final itemsToProcess = List<Map<String, dynamic>>.from(queue);
+      
+      for (int i = 0; i < itemsToProcess.length; i++) {
+        final item = itemsToProcess[i];
         try {
           final result = await _processSyncItem(item);
           if (result) {
-            await _offlineRepo.removeSyncItem(i);
+            await _offlineRepo.removeSyncItem(0);
             syncedCount++;
           }
         } catch (e) {
           if (kDebugMode) print('Error syncing item $i: $e');
+          break;
         }
       }
 
@@ -77,94 +83,173 @@ class SyncService {
 
   Future<bool> _processSyncItem(Map<String, dynamic> item) async {
     final action = item['action'] as String?;
-    final endpoint = item['endpoint'] as String?;
+    final table = item['table'] as String?;
     final data = item['data'] as Map<String, dynamic>?;
-
-    if (endpoint == null) return false;
+    final id = item['id'] as String?;
 
     switch (action) {
-      case 'create':
-        await _api.post(endpoint, data: data);
+      case 'insert':
+        if (table == null || data == null) return false;
+        await _supabase.from(table).insert(data);
         return true;
+        
       case 'update':
-        final id = item['id'] as String?;
-        if (id != null) {
-          await _api.put('$endpoint/$id', data: data);
-          return true;
-        }
-        return false;
+        if (table == null || data == null || id == null) return false;
+        await _supabase.from(table).update(data).eq('id', id);
+        return true;
+        
       case 'delete':
-        final id = item['id'] as String?;
-        if (id != null) {
-          await _api.delete('$endpoint/$id');
-          return true;
-        }
-        return false;
+        if (table == null || id == null) return false;
+        await _supabase.from(table).delete().eq('id', id);
+        return true;
+
+      case 'upload_media':
+        return await _processMediaUpload(item);
+
+      case 'upload_signature':
+        return await _processSignatureUpload(item);
+        
       default:
         return false;
     }
   }
 
-  Future<void> queueOrderCreate(Map<String, dynamic> order) async {
+  Future<bool> _processMediaUpload(Map<String, dynamic> item) async {
+    final filePath = item['file_path'] as String?;
+    final metadata = item['metadata'] as Map<String, dynamic>?;
+
+    if (filePath == null || metadata == null) return false;
+
+    final uploadResult = await _photoService.uploadPhoto(
+      filePath, 
+      folder: metadata['context'] ?? 'general'
+    );
+
+    if (uploadResult.success && uploadResult.url != null) {
+      await _supabase.from('media').insert({
+        'url': uploadResult.url,
+        'public_id': uploadResult.publicId,
+        'resource_type': 'image',
+        'order_id': metadata['order_id'],
+        'equipment_id': metadata['equipment_id'],
+        'context': metadata['context'],
+        'caption': metadata['caption'],
+        'uploaded_by': _supabase.auth.currentUser?.id,
+      });
+
+      _deleteLocalFile(filePath);
+      return true;
+    }
+    return false;
+  }
+
+  Future<bool> _processSignatureUpload(Map<String, dynamic> item) async {
+    final filePath = item['file_path'] as String?;
+    final orderId = item['order_id'] as String?;
+
+    if (filePath == null || orderId == null) return false;
+
+    final uploadResult = await _photoService.uploadPhoto(filePath, folder: 'signatures');
+
+    if (uploadResult.success && uploadResult.url != null) {
+      await _supabase.from('service_orders').update({
+        'client_signature_url': uploadResult.url,
+      }).eq('id', orderId);
+
+      _deleteLocalFile(filePath);
+      return true;
+    }
+    return false;
+  }
+
+  void _deleteLocalFile(String path) {
+    try {
+      final file = File(path);
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {}
+  }
+
+  // --- Helpers ---
+
+  Future<void> queueMediaUpload({
+    required String filePath,
+    String? orderId,
+    String? equipmentId,
+    String? context,
+    String? caption,
+  }) async {
     await _offlineRepo.addToSyncQueue({
-      'action': 'create',
-      'endpoint': '/orders',
-      'data': order,
+      'action': 'upload_media',
+      'file_path': filePath,
+      'metadata': {
+        'order_id': orderId,
+        'equipment_id': equipmentId,
+        'context': context,
+        'caption': caption,
+      },
     });
   }
 
-  Future<void> queueOrderUpdate(String orderId, Map<String, dynamic> order) async {
+  Future<void> queueSignatureUpload(String orderId, String filePath) async {
+    await _offlineRepo.addToSyncQueue({
+      'action': 'upload_signature',
+      'order_id': orderId,
+      'file_path': filePath,
+    });
+  }
+
+  Future<void> queueOrderUpdate(String orderId, Map<String, dynamic> data) async {
     await _offlineRepo.addToSyncQueue({
       'action': 'update',
-      'endpoint': '/orders',
+      'table': 'service_orders',
       'id': orderId,
-      'data': order,
+      'data': data,
     });
   }
 
-  Future<void> queueEquipmentCreate(Map<String, dynamic> equipment) async {
+  Future<void> queueQuoteUpdate(String quoteId, Map<String, dynamic> data) async {
     await _offlineRepo.addToSyncQueue({
-      'action': 'create',
-      'endpoint': '/equipment',
-      'data': equipment,
+      'action': 'update',
+      'table': 'quotes',
+      'id': quoteId,
+      'data': data,
     });
   }
 
-  Future<void> queueQuoteCreate(Map<String, dynamic> quote) async {
+  Future<void> queueHistoryLog(String orderId, String status, String? notes) async {
     await _offlineRepo.addToSyncQueue({
-      'action': 'create',
-      'endpoint': '/quotes',
-      'data': quote,
+      'action': 'insert',
+      'table': 'service_order_history',
+      'data': {
+        'order_id': orderId,
+        'status': status,
+        'notes': notes,
+        'changed_by': _supabase.auth.currentUser?.id,
+      },
     });
   }
 
-  int getPendingCount() {
-    return _offlineRepo.getSyncQueue().length;
-  }
-
-  DateTime? getLastSyncTime() {
-    return _offlineRepo.getLastSyncTime();
-  }
-
-  bool hasPendingChanges() {
-    return getPendingCount() > 0;
-  }
-
-  Future<void> fetchAndCacheData() async {
+  Future<void> fetchAndCacheAll() async {
     try {
-      final ordersResponse = await _api.get('/orders');
-      final orders = ordersResponse['data'] as List? ?? [];
-      await _offlineRepo.cacheOrders(orders.cast<Map<String, dynamic>>());
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return;
 
-      final equipmentResponse = await _api.get('/equipment');
-      final equipment = equipmentResponse['data'] as List? ?? [];
-      await _offlineRepo.cacheEquipment(equipment.cast<Map<String, dynamic>>());
+      final orders = await _supabase
+          .from('service_orders')
+          .select()
+          .or('technician_id.eq.$userId,client_id.eq.$userId');
+      await _offlineRepo.cacheOrders(List<Map<String, dynamic>>.from(orders));
 
-      final quotesResponse = await _api.get('/quotes');
-      final quotes = quotesResponse['data'] as List? ?? [];
-      await _offlineRepo.cacheQuotes(quotes.cast<Map<String, dynamic>>());
+      final equipment = await _supabase.from('equipment').select();
+      await _offlineRepo.cacheEquipment(List<Map<String, dynamic>>.from(equipment));
+
+      final quotes = await _supabase.from('quotes').select();
+      await _offlineRepo.cacheQuotes(List<Map<String, dynamic>>.from(quotes));
     } catch (e) {
       if (kDebugMode) print('Error fetching data: $e');
     }
   }
+
+  int getPendingCount() => _offlineRepo.getSyncQueue().length;
+  DateTime? getLastSyncTime() => _offlineRepo.getLastSyncTime();
 }

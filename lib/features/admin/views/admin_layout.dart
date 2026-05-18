@@ -3,12 +3,13 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
 
 class AdminLayout extends StatelessWidget {
-  const AdminLayout({super.key});
+  final Widget child;
+  const AdminLayout({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: const _AdminBody(),
+      body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(context),
         onTap: (index) => _onItemTapped(index, context),
@@ -73,14 +74,5 @@ class AdminLayout extends StatelessWidget {
         context.go('/admin/quotes');
         break;
     }
-  }
-}
-
-class _AdminBody extends StatelessWidget {
-  const _AdminBody();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox.shrink();
   }
 }

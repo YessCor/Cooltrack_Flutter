@@ -2,7 +2,7 @@ import '../core/constants.dart';
 
 class ServiceOrder {
   final String id;
-  final String orderNumber;
+  final int orderNumber;
   final String clientId;
   final String? technicianId;
   final String? equipmentId;
@@ -52,7 +52,7 @@ class ServiceOrder {
   factory ServiceOrder.fromJson(Map<String, dynamic> json) {
     return ServiceOrder(
       id: json['id'] as String,
-      orderNumber: json['order_number'] as String,
+      orderNumber: json['order_number'] as int,
       clientId: json['client_id'] as String,
       technicianId: json['technician_id'] as String?,
       equipmentId: json['equipment_id'] as String?,
@@ -111,7 +111,7 @@ class ServiceOrder {
 
   ServiceOrder copyWith({
     String? id,
-    String? orderNumber,
+    int? orderNumber,
     String? clientId,
     String? technicianId,
     String? equipmentId,

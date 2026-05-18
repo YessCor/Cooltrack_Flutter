@@ -1,10 +1,17 @@
-// API Configuration
-const String apiBaseUrl = 'http://localhost:8080/api';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-// Supabase Configuration
-const String supabaseUrl = 'https://ycblykplwavtrmhggmgf.supabase.co';
-const String supabasePublishableKey =
-    'sb_publishable_pElMPEafQ7OfXk0Vm4Rkgw_-TOaqKiR';
+// API Configuration
+// Para emulador Android usa 10.0.2.2, para iOS usa localhost o la IP de tu PC
+const String apiBaseUrl = 'http://10.0.2.2:8080/api';
+
+// Supabase Configuration (Cargadas desde .env.local)
+final String supabaseUrl = dotenv.get('SUPABASE_URL', fallback: 'https://ycblykplwavtrmhggmgf.supabase.co');
+final String supabasePublishableKey = dotenv.get('SUPABASE_ANON_KEY', fallback: '');
+
+// Cloudinary Configuration
+final String cloudinaryApiKey = dotenv.get('CLOUDINARY_API_KEY', fallback: 'XMNOpC8RFvJPVCsefOmGAM5kUQU');
+final String cloudinaryCloudName = dotenv.get('CLOUDINARY_CLOUD_NAME', fallback: '');
+final String cloudinaryUploadPreset = dotenv.get('CLOUDINARY_UPLOAD_PRESET', fallback: '');
 
 // User Roles
 enum UserRole { admin, technician, client }

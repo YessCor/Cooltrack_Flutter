@@ -110,5 +110,7 @@ class LocationNotifier extends StateNotifier<LocationState> {
 }
 
 final locationProvider = StateNotifierProvider<LocationNotifier, LocationState>((ref) {
-  return LocationNotifier();
+  final notifier = LocationNotifier();
+  notifier.init();
+  return notifier;
 });
