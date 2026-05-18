@@ -81,6 +81,6 @@ class _AdminBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const AutoRouter();
+    return const SizedBox.shrink();
   }
 }

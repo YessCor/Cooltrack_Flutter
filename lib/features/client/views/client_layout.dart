@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
 
-class TechLayout extends StatelessWidget {
-  const TechLayout({super.key});
+class ClientLayout extends StatelessWidget {
+  const ClientLayout({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: const _TechBody(),
+      body: const _ClientBody(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(context),
         onTap: (index) => _onItemTapped(index, context),
@@ -17,14 +17,19 @@ class TechLayout extends StatelessWidget {
         unselectedItemColor: AppColors.textMuted,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.work_outline),
-            activeIcon: Icon(Icons.work),
-            label: 'Trabajos',
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
+            label: 'Inicio',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Perfil',
+            icon: Icon(Icons.hvac_outlined),
+            activeIcon: Icon(Icons.hvac),
+            label: 'Equipos',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.receipt_long_outlined),
+            activeIcon: Icon(Icons.receipt_long),
+            label: 'Servicios',
           ),
         ],
       ),
@@ -33,31 +38,31 @@ class TechLayout extends StatelessWidget {
 
   int _calculateSelectedIndex(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-    if (location.contains('/profile')) return 1;
+    if (location.contains('/equipment')) return 1;
+    if (location.contains('/service') || location.contains('/new-request')) return 2;
     return 0;
   }
 
   void _onItemTapped(int index, BuildContext context) {
     switch (index) {
       case 0:
-        context.go('/technician');
+        context.go('/client');
         break;
       case 1:
-        context.go('/technician/profile');
+        context.go('/client/equipment');
+        break;
+      case 2:
+        context.go('/client/new-request');
         break;
     }
   }
 }
 
-class _TechBody extends StatelessWidget {
-  const _TechBody();
+class _ClientBody extends StatelessWidget {
+  const _ClientBody();
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).matchedLocation;
-    if (location.contains('/profile')) {
-      return const SizedBox.shrink();
-    }
     return const SizedBox.shrink();
   }
 }
